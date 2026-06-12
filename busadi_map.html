@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BUSADI International Engagement Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; background: #f0f2f5; }
+  #map { flex: 1; height: 100vh; }
+
+  #sidebar {
+    width: 360px;
+    min-width: 360px;
+    height: 100vh;
+    background: white;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease;
+    z-index: 1000;
+    overflow: hidden;
+  }
+  #sidebar.hidden { transform: translateX(360px); }
+
+  #sidebar-header {
+    background: #002147;
+    color: white;
+    padding: 20px;
+    flex-shrink: 0;
+  }
+  #sidebar-header h2 { font-size: 16px; font-weight: 600; color: #FFD100; margin-bottom: 4px; }
+  #sidebar-header p { font-size: 12px; color: rgba(255,255,255,0.7); }
+  #event-count { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 6px; }
+
+  #sidebar-body { overflow-y: auto; flex: 1; padding: 16px; }
+
+  .event-card {
+    border: 0.5px solid #e8e8e8;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+    background: #fafafa;
+  }
+  .event-card:hover { background: #f0f4ff; border-color: #002147; }
+
+  .event-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .partner-logo {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 6px;
+    border: 0.5px solid #e0e0e0;
+    background: white;
+    padding: 2px;
+    flex-shrink: 0;
+  }
+  .partner-logo-placeholder {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    background: #e8edf5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .event-name { font-size: 13px; font-weight: 600; color: #002147; line-height: 1.3; }
+  .partner-name { font-size: 11px; color: #666; margin-top: 2px; }
+
+  .event-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+  .badge-date { background: #e8f0fe; color: #1a56c4; }
+  .badge-category { background: #e8f5e9; color: #2e7d32; }
+  .badge-year-2025 { background: #002147; color: #FFD100; }
+  .badge-year-2026 { background: #C0392B; color: white; }
+
+  .collage { display: flex; flex-wrap: wrap; gap: 4px; width: 40px; }
+  .collage img {
+    width: 17px; height: 17px;
+    object-fit: contain;
+    border-radius: 3px;
+    border: 0.5px solid #e0e0e0;
+    background: white;
+  }
+
+  #default-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #999;
+    text-align: center;
+    padding: 40px 20px;
+  }
+  #default-message .icon { font-size: 48px; margin-bottom: 16px; }
+  #default-message h3 { font-size: 15px; color: #555; margin-bottom: 8px; }
+  #default-message p { font-size: 13px; line-height: 1.5; }
+
+  .legend {
+    position: absolute;
+    bottom: 30px;
+    left: 20px;
+    background: white;
+    border-radius: 10px;
+    padding: 12px 16px;
+    z-index: 999;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    font-size: 12px;
+  }
+  .legend-title { font-weight: 600; color: #002147; margin-bottom: 8px; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; background: #002147; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="sidebar" class="hidden">
+  <div id="sidebar-header">
+    <h2 id="sidebar-country">Country</h2>
+    <p id="sidebar-subtitle">BUSADI International Engagement</p>
+    <p id="event-count"></p>
+  </div>
+  <div id="sidebar-body">
+    <div id="default-message">
+      <div class="icon">🌏</div>
+      <h3>Hover over a country</h3>
+      <p>Mouse over a bubble on the map to see events and partners for that location.</p>
+    </div>
+    <div id="event-list"></div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Events by Country</div>
+  <div class="legend-item"><div class="legend-dot" style="width:8px;height:8px"></div> 1–2 events</div>
+  <div class="legend-item"><div class="legend-dot" style="width:12px;height:12px"></div> 3–5 events</div>
+  <div class="legend-item"><div class="legend-dot" style="width:18px;height:18px"></div> 6+ events</div>
+</div>
+
+<script>
+// ── Partner → logo file mapping ──────────────────────────────────────────
+const LOGO_MAP = {
+  "Antai College of Economics and Management / Shanghai Jiao Tong University": "Antai College of Economics and Management.jpg",
+  "BINUS University": "BINUS University.png",
+  "Bank Indonesia": "Bank Indonesia.jpg",
+  "Boustead Singapore": "Boustead Singapore.jpg",
+  "Yu Loon Wong": "Boustead Singapore.jpg",
+  "City University of Hong Kong": "City University of Hong Kong.jpg",
+  "CUHK": "CUHK.jpg",
+  "East China Normal University": "East China Normal University.png",
+  "Chunghua County Council": "Emblem_of_Changhua_County.svg",
+  "Enterprise Singapore": "Enterprise Singapore.jpg",
+  "Fudan University": "Fudan University.jpg",
+  "HKUST": "HKUST.png",
+  "Hamburg University of Technology": "Hamburg University of Technology.png",
+  "Hong Kong Metropolitan University": "Hong Kong Metropolitan University.jpg",
+  "Investment NSW": "Investment NSW.jpg",
+  "Nanyang Technological University": "Nanyang Technological University.png",
+  "OJK (Financial Services Authority Indonesia)": "OJK (Financial Services Authority Indonesia).png",
+  "Sarawak Digital Economy Corporation": "Sarawak Digital Economy Corporation.png",
+  "Shanghai Jiao Tong University": "Shanghai Jiao Tong University.png",
+  "SIM Global Education": "SIM Global Education.png",
+  "Singapore Institute of Technology": "Singapore Institute of Technology.png",
+  "Singapore Parliament": "Singapore Parliament.jpg",
+  "StudyNSW": "StudyNSW.png",
+  "Sungkyunkwan University": "Sungkyunkwan University.jpg",
+  "Thammasat University": "Thammasat University.png",
+  "The Hong Kong Polytechnic University": "The Hong Kong Polytechnic University.png",
+  "Tsinghua University": "Tsinghua University.png",
+  "UNSW": "UNSW.png",
+  "Universitas Indonesia": "Universitas Indonesia.jpg",
+  "University of Calgary": "University of Calgary.png",
+  "Vietnam National University - University of Economics and Business": "Vietnam National University - University of Economics and Business.jpg",
+  "Vietnam National University": "Vietnam National University.jpg",
+  "Weslink International School": "Weslink International School.png",
+};
+
+// Combined consortium logos
+const CONSORTIUM_LOGOS = {
+  "CUHK, HKUST, CityU HK, Fudan University, Shanghai Jiao Tong University": [
+    "CUHK.jpg", "HKUST.png", "City University of Hong Kong.jpg",
+    "Fudan University.jpg", "Shanghai Jiao Tong University.png"
+  ]
+};
+
+// ── Event data ────────────────────────────────────────────────────────────
+const COUNTRY_DATA = {
+  "Australia": {
+    coords: [-25.2744, 133.7751],
+    events: [
+      { name: "Investment NSW ASEAN Delegation Visit", partner: "Investment NSW", date: "June 2025", category: "Industry Partnerships", year: 2025 },
+      { name: "GNAM Global Network Week", partner: null, date: "March 2025", category: "Partner Meetings/Events", year: 2025 }
+    ]
+  },
+  "Canada": {
+    coords: [56.1304, -106.3468],
+    events: [
+      { name: "University of Calgary / Haskayne School of Business Delegation Visit", partner: "University of Calgary", date: "March 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  },
+  "Chile": {
+    coords: [-35.6751, -71.5430],
+    events: [
+      { name: "PIM Network Conference", partner: null, date: "October 2025", category: "Partner Meetings/Events", year: 2025 }
+    ]
+  },
+  "China": {
+    coords: [35.8617, 104.1954],
+    events: [
+      { name: "Antai College of Economics and Management Delegation Visit", partner: "Antai College of Economics and Management / Shanghai Jiao Tong University", date: "April 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Shanghai Jiao Tong University Partner Visit", partner: "Shanghai Jiao Tong University", date: "August 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "East China Normal University Delegation Visit", partner: "East China Normal University", date: "May 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Hong Kong / Shanghai Roadshow", partner: "CUHK, HKUST, CityU HK, Fudan University, Shanghai Jiao Tong University", date: "November 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Tsinghua University Delegation Visit", partner: "Tsinghua University", date: "May 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  },
+  "Germany": {
+    coords: [51.1657, 10.4515],
+    events: [
+      { name: "Hamburg University of Technology visits UNSW", partner: "Hamburg University of Technology", date: "March 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  },
+  "Hong Kong": {
+    coords: [22.3193, 114.1694],
+    events: [
+      { name: "City University of Hong Kong Delegation Visit", partner: "City University of Hong Kong", date: "May 2025", category: "Future Student Recruitment", year: 2025 },
+      { name: "The Hong Kong Polytechnic University Delegation Visit", partner: "The Hong Kong Polytechnic University", date: "May 2025", category: "Research Collaboration", year: 2025 },
+      { name: "Hong Kong GBP Alumni Event", partner: "UNSW", date: "February 2026", category: "Alumni Event", year: 2026 },
+      { name: "Hong Kong Metropolitan University Delegation Visit", partner: "Hong Kong Metropolitan University", date: "March 2026", category: "Partner Meetings/Events", year: 2026 },
+      { name: "Hong Kong Metropolitan University GISP", partner: "Hong Kong Metropolitan University", date: "May 2026", category: "Study Tour", year: 2026 }
+    ]
+  },
+  "Indonesia": {
+    coords: [-0.7893, 113.9213],
+    events: [
+      { name: "Universitas Indonesia Delegation Visit", partner: "Universitas Indonesia", date: "February 2025", category: "Articulation Visits", year: 2025 },
+      { name: "OJK Delegation Visit", partner: "OJK (Financial Services Authority Indonesia)", date: "June 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Bank Indonesia Delegation Visit", partner: "Bank Indonesia", date: "November 2025", category: "Industry Partnerships", year: 2025 },
+      { name: "UNSW International Week", partner: "BINUS University", date: "April 2025", category: "Future Student Recruitment", year: 2025 },
+      { name: "Indonesia GBP", partner: null, date: "January 2025", category: "Study Tour", year: 2025 }
+    ]
+  },
+  "Malaysia": {
+    coords: [4.2105, 101.9758],
+    events: [
+      { name: "Sarawak Digital Economy Corporation Visit to UNSW", partner: "Sarawak Digital Economy Corporation", date: "September 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "UNSW Malaysia Alumni Pitch Event", partner: null, date: "May 2025", category: "Marketing/Sundries", year: 2025 },
+      { name: "Felix Sarawak Visit", partner: "Sarawak Digital Economy Corporation", date: "February 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  },
+  "Singapore": {
+    coords: [1.3521, 103.8198],
+    events: [
+      { name: "Enterprise Singapore Delegation Visit", partner: "Enterprise Singapore", date: "February 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "SIT Global Inbound Study Program", partner: "Singapore Institute of Technology", date: "August 2025", category: "Future Student Recruitment", year: 2025 },
+      { name: "UNSW Founders Pioneering Investor Series", partner: null, date: "October 2025", category: "Marketing/Sundries", year: 2025 },
+      { name: "Singapore GBP", partner: "Nanyang Technological University", date: "July 2025", category: "Study Tour", year: 2025 },
+      { name: "SIM Global Education Delegation Visit", partner: "SIM Global Education", date: "March 2026", category: "Partner Meetings/Events", year: 2026 },
+      { name: "Singapore Parliament Delegation Visit", partner: "Singapore Parliament", date: "March 2026", category: "Industry Partnership", year: 2026 },
+      { name: "Yu Loon Wong visits UNSW", partner: "Yu Loon Wong", date: "April 2026", category: "Partner Meetings/Events", year: 2026 },
+      { name: "Singapore Open Day", partner: "UNSW", date: "April 2026", category: "Future Student Recruitment", year: 2026 }
+    ]
+  },
+  "South Korea": {
+    coords: [35.9078, 127.7669],
+    events: [
+      { name: "Sungkyunkwan University", partner: "Sungkyunkwan University", date: "January 2025", category: "Partner Meetings/Events", year: 2025 }
+    ]
+  },
+  "Taiwan (China)": {
+    coords: [23.6978, 120.9605],
+    events: [
+      { name: "Chunghua County Council visits UNSW", partner: "Chunghua County Council", date: "May 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  },
+  "Thailand": {
+    coords: [15.8700, 100.9925],
+    events: [
+      { name: "Thammasat University Delegation Visit", partner: "Thammasat University", date: "August 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Thailand GBP", partner: "Thammasat University", date: "November 2025", category: "Industry Partnerships", year: 2025 },
+      { name: "Thailand Digital Skills Roadshow", partner: "StudyNSW", date: "March 2026", category: "Industry Partnership", year: 2026 }
+    ]
+  },
+  "Vietnam": {
+    coords: [14.0583, 108.2772],
+    events: [
+      { name: "Vietnam National University Delegation Visit", partner: "Vietnam National University - University of Economics and Business", date: "April 2025", category: "Partner Meetings/Events", year: 2025 },
+      { name: "Weslink International School Campus Tour", partner: "Weslink International School", date: "July 2025", category: "Study Tour", year: 2025 },
+      { name: "Vietnam Open Day", partner: "UNSW", date: "April 2026", category: "Future Student Recruitment", year: 2026 },
+      { name: "DVC Global Vietnam National University Ho Chi Minh City", partner: "Vietnam National University", date: "May 2026", category: "Partner Meetings/Events", year: 2026 }
+    ]
+  }
+};
+
+// ── Helper: get logo HTML for a partner ──────────────────────────────────
+function getLogoHTML(partner) {
+  if (!partner) return '<div class="partner-logo-placeholder">🏛️</div>';
+
+  // Check consortium
+  if (CONSORTIUM_LOGOS[partner]) {
+    const imgs = CONSORTIUM_LOGOS[partner].map(f =>
+      `<img src="logos/${f}" onerror="this.style.display='none'">`
+    ).join('');
+    return `<div class="collage">${imgs}</div>`;
+  }
+
+  // Check direct match
+  if (LOGO_MAP[partner]) {
+    return `<img class="partner-logo" src="logos/${LOGO_MAP[partner]}" onerror="this.outerHTML='<div class=\\'partner-logo-placeholder\\'>🏛️</div>'">`;
+  }
+
+  return '<div class="partner-logo-placeholder">🏛️</div>';
+}
+
+// ── Duplicate logo check: only show each logo once per sidebar ───────────
+function deduplicateEvents(events) {
+  const seenLogos = new Set();
+  return events.map(ev => {
+    const logoKey = ev.partner && LOGO_MAP[ev.partner] ? LOGO_MAP[ev.partner] :
+                    ev.partner && CONSORTIUM_LOGOS[ev.partner] ? ev.partner : null;
+    const isDuplicate = logoKey && seenLogos.has(logoKey);
+    if (logoKey) seenLogos.add(logoKey);
+    return { ...ev, isDuplicate };
+  });
+}
+
+// ── Show sidebar ─────────────────────────────────────────────────────────
+function showSidebar(country, data) {
+  document.getElementById('sidebar').classList.remove('hidden');
+  document.getElementById('default-message').style.display = 'none';
+  document.getElementById('sidebar-country').textContent = country;
+
+  const events = deduplicateEvents(data.events);
+  document.getElementById('event-count').textContent =
+    `${events.length} event${events.length !== 1 ? 's' : ''}`;
+
+  const list = document.getElementById('event-list');
+  list.innerHTML = events.map(ev => `
+    <div class="event-card">
+      <div class="event-header">
+        ${ev.isDuplicate ? '<div class="partner-logo-placeholder" style="opacity:0"></div>' : getLogoHTML(ev.partner)}
+        <div>
+          <div class="event-name">${ev.name}</div>
+          ${ev.partner ? `<div class="partner-name">${ev.partner}</div>` : ''}
+        </div>
+      </div>
+      <div class="event-meta">
+        <span class="badge badge-date">${ev.date}</span>
+        <span class="badge badge-category">${ev.category}</span>
+        <span class="badge badge-year-${ev.year}">${ev.year}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Init map ─────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([20, 95], 3);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19
+}).addTo(map);
+
+// ── Add bubbles ──────────────────────────────────────────────────────────
+Object.entries(COUNTRY_DATA).forEach(([country, data]) => {
+  const count = data.events.length;
+  const radius = 8 + count * 4;
+
+  const circle = L.circleMarker(data.coords, {
+    radius: radius,
+    fillColor: '#002147',
+    color: '#FFD100',
+    weight: 2,
+    opacity: 1,
+    fillOpacity: 0.75
+  }).addTo(map);
+
+  // Count label
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="color:white;font-size:11px;font-weight:600;text-align:center;line-height:${radius*2}px;width:${radius*2}px;height:${radius*2}px;margin-left:-${radius}px;margin-top:-${radius}px">${count}</div>`,
+    iconSize: [radius * 2, radius * 2],
+    iconAnchor: [radius, radius]
+  });
+  L.marker(data.coords, { icon, interactive: false }).addTo(map);
+
+  circle.on('mouseover', () => showSidebar(country, data));
+  circle.on('click', () => showSidebar(country, data));
+});
+</script>
+</body>
+</html>
