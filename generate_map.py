@@ -12,6 +12,7 @@ Usage:
     python generate_map.py
 """
 
+import matplotlib
 import os
 import json
 import base64
