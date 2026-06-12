@@ -8,6 +8,9 @@ on:
       - "Logos/**"
       - "generate_map.py"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
