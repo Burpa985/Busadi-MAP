@@ -1,0 +1,36 @@
+name: Generate BUSADI Map
+
+on:
+  push:
+    paths:
+      - "BUSADI Events 2025.csv"
+      - "BUSADI Events 2026.csv"
+      - "Logos/**"
+      - "generate_map.py"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas pillow
+
+      - name: Generate map HTML
+        run: python generate_map.py
+
+      - name: Commit and push updated HTML
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add busadi_map.html
+          git diff --cached --quiet || git commit -m "Auto-update busadi_map.html"
+          git push
