@@ -1,8 +1,12 @@
 """
 generate_map.py
 ---------------
-Run this script whenever new events are added to the CSV files.
-It will regenerate busadi_map.html with the latest data.
+Fully dynamic map generator — no hardcoded partners or countries.
+- Partners are matched to logos automatically by filename
+- Countries are looked up from a built-in world coordinates dictionary
+- To add a new partner logo: just upload the logo file to the Logos folder
+  with the exact same name as the partner in the CSV (e.g. "New University.png")
+- To add a new country: it will be found automatically if it's a real country name
 
 Usage:
     python generate_map.py
@@ -13,87 +17,78 @@ import json
 import base64
 import ast
 import io
+import re
 import pandas as pd
 from PIL import Image
 
 # ── Config ────────────────────────────────────────────────────────────────
-PATH_2025  = r"C:\Users\Admin\Desktop\BUSADI\BUSADI Events 2025.csv"
-PATH_2026  = r"C:\Users\Admin\Desktop\BUSADI\BUSADI Events 2026.csv"
-LOGOS_DIR  = r"C:\Users\Admin\Desktop\BUSADI\Logos"
-OUTPUT_HTML = r"C:\Users\Admin\Desktop\BUSADI\busadi_map.html"
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+PATH_2025   = os.path.join(BASE_DIR, "BUSADI Events 2025.csv")
+PATH_2026   = os.path.join(BASE_DIR, "BUSADI Events 2026.csv")
+LOGOS_DIR   = os.path.join(BASE_DIR, "Logos")
+OUTPUT_HTML = os.path.join(BASE_DIR, "busadi_map.html")
 
-# ── Country coordinates ───────────────────────────────────────────────────
-COUNTRY_COORDS = {
-    "Singapore":      (1.3521,   103.8198),
-    "Hong Kong":      (22.3193,  114.1694),
-    "Vietnam":        (14.0583,  108.2772),
-    "China":          (35.8617,  104.1954),
-    "Indonesia":      (-0.7893,  113.9213),
-    "Malaysia":       (4.2105,   101.9758),
-    "Thailand":       (15.8700,  100.9925),
-    "Germany":        (51.1657,   10.4515),
-    "Canada":         (56.1304, -106.3468),
-    "Taiwan (China)": (23.6978,  120.9605),
-    "Taiwan":         (23.6978,  120.9605),
-    "Australia":      (-25.2744, 133.7751),
-    "Chile":          (-35.6751, -71.5430),
-    "South Korea":    (35.9078,  127.7669),
-    "Japan":          (36.2048,  138.2529),
-    "India":          (20.5937,   78.9629),
-    "United Kingdom": (55.3781,   -3.4360),
-    "United States":  (37.0902,  -95.7129),
-}
-
-# ── Partner → logo filename mapping ──────────────────────────────────────
-PARTNER_LOGO_FILES = {
-    "Antai College of Economics and Management / Shanghai Jiao Tong University": "Antai College of Economics and Management.jpg",
-    "BINUS University":                          "BINUS University.png",
-    "Bank Indonesia":                            "Bank Indonesia.jpg",
-    "Boustead Singapore":                        "Boustead Singapore.jpg",
-    "Yu Loon Wong":                              "Boustead Singapore.jpg",
-    "City University of Hong Kong":              "City University of Hong Kong.jpg",
-    "CUHK":                                      "CUHK.jpg",
-    "East China Normal University":              "East China Normal University.png",
-    "Chunghua County Council":                   "Emblem_of_Changhua_County.svg",
-    "Enterprise Singapore":                      "Enterprise Singapore.jpg",
-    "Fudan University":                          "Fudan University.jpg",
-    "HKUST":                                     "HKUST.avif",
-    "Hamburg University of Technology":          "Hamburg University of Technology.png",
-    "Hong Kong Metropolitan University":         "Hong Kong Metropolitan University.jpg",
-    "Investment NSW":                            "Investment NSW.jpg",
-    "Nanyang Technological University":          "Nanyang Technological University.png",
-    "OJK (Financial Services Authority Indonesia)": "OJK (Financial Services Authority Indonesia).png",
-    "Sarawak Digital Economy Corporation":       "Sarawak Digital Economy Corporation.png",
-    "Shanghai Jiao Tong University":             "Shanghai Jiao Tong University.png",
-    "SIM Global Education":                      "SIM Global Education.png",
-    "Singapore Institute of Technology":         "Singapore Institute of Technology.png",
-    "Singapore Parliament":                      "Singapore Parliament.jpg",
-    "StudyNSW":                                  "StudyNSW.png",
-    "Sungkyunkwan University":                   "Sungkyunkwan University.jpg",
-    "Thammasat University":                      "Thammasat University.png",
-    "The Hong Kong Polytechnic University":      "The Hong Kong Polytechnic University.png",
-    "Tsinghua University":                       "Tsinghua University.png",
-    "UNSW":                                      "UNSW.png",
-    "Universitas Indonesia":                     "Universitas Indonesia.jpg",
-    "University of Calgary":                     "University of Calgary.png",
-    "Vietnam National University - University of Economics and Business": "Vietnam National University - University of Economics and Business.jpg",
-    "Vietnam National University":               "Vietnam National University.jpg",
-    "Weslink International School":              "Weslink International School.png",
-}
-
-# Consortium partners — shown as a collage of logos
-CONSORTIUM_PARTNERS = {
-    "CUHK, HKUST, CityU HK, Fudan University, Shanghai Jiao Tong University": [
-        "CUHK.jpg",
-        "HKUST.avif",
-        "City University of Hong Kong.jpg",
-        "Fudan University.jpg",
-        "Shanghai Jiao Tong University.png",
-    ]
+# ── World country coordinates (comprehensive) ─────────────────────────────
+WORLD_COORDS = {
+    "Afghanistan": (33.9391, 67.7100), "Albania": (41.1533, 20.1683),
+    "Algeria": (28.0339, 1.6596), "Argentina": (-38.4161, -63.6167),
+    "Armenia": (40.0691, 45.0382), "Australia": (-25.2744, 133.7751),
+    "Austria": (47.5162, 14.5501), "Azerbaijan": (40.1431, 47.5769),
+    "Bangladesh": (23.6850, 90.3563), "Belarus": (53.7098, 27.9534),
+    "Belgium": (50.5039, 4.4699), "Bolivia": (-16.2902, -63.5887),
+    "Brazil": (-14.2350, -51.9253), "Bulgaria": (42.7339, 25.4858),
+    "Cambodia": (12.5657, 104.9910), "Cameroon": (7.3697, 12.3547),
+    "Canada": (56.1304, -106.3468), "Chile": (-35.6751, -71.5430),
+    "China": (35.8617, 104.1954), "Colombia": (4.5709, -74.2973),
+    "Croatia": (45.1000, 15.2000), "Cuba": (21.5218, -77.7812),
+    "Czech Republic": (49.8175, 15.4730), "Denmark": (56.2639, 9.5018),
+    "Ecuador": (-1.8312, -78.1834), "Egypt": (26.8206, 30.8025),
+    "Ethiopia": (9.1450, 40.4897), "Finland": (61.9241, 25.7482),
+    "France": (46.2276, 2.2137), "Georgia": (42.3154, 43.3569),
+    "Germany": (51.1657, 10.4515), "Ghana": (7.9465, -1.0232),
+    "Greece": (39.0742, 21.8243), "Guatemala": (15.7835, -90.2308),
+    "Hong Kong": (22.3193, 114.1694), "Hungary": (47.1625, 19.5033),
+    "India": (20.5937, 78.9629), "Indonesia": (-0.7893, 113.9213),
+    "Iran": (32.4279, 53.6880), "Iraq": (33.2232, 43.6793),
+    "Ireland": (53.1424, -7.6921), "Israel": (31.0461, 34.8516),
+    "Italy": (41.8719, 12.5674), "Japan": (36.2048, 138.2529),
+    "Jordan": (30.5852, 36.2384), "Kazakhstan": (48.0196, 66.9237),
+    "Kenya": (-0.0236, 37.9062), "Kuwait": (29.3117, 47.4818),
+    "Laos": (19.8563, 102.4955), "Lebanon": (33.8547, 35.8623),
+    "Libya": (26.3351, 17.2283), "Malaysia": (4.2105, 101.9758),
+    "Mexico": (23.6345, -102.5528), "Mongolia": (46.8625, 103.8467),
+    "Morocco": (31.7917, -7.0926), "Mozambique": (-18.6657, 35.5296),
+    "Myanmar": (21.9162, 95.9560), "Nepal": (28.3949, 84.1240),
+    "Netherlands": (52.1326, 5.2913), "New Zealand": (-40.9006, 174.8860),
+    "Nigeria": (9.0820, 8.6753), "North Korea": (40.3399, 127.5101),
+    "Norway": (60.4720, 8.4689), "Oman": (21.4735, 55.9754),
+    "Pakistan": (30.3753, 69.3451), "Palestine": (31.9522, 35.2332),
+    "Panama": (8.5380, -80.7821), "Papua New Guinea": (-6.3150, 143.9555),
+    "Paraguay": (-23.4425, -58.4438), "Peru": (-9.1900, -75.0152),
+    "Philippines": (12.8797, 121.7740), "Poland": (51.9194, 19.1451),
+    "Portugal": (39.3999, -8.2245), "Qatar": (25.3548, 51.1839),
+    "Romania": (45.9432, 24.9668), "Russia": (61.5240, 105.3188),
+    "Saudi Arabia": (23.8859, 45.0792), "Singapore": (1.3521, 103.8198),
+    "Slovakia": (48.6690, 19.6990), "Slovenia": (46.1512, 14.9955),
+    "South Africa": (-30.5595, 22.9375), "South Korea": (35.9078, 127.7669),
+    "Spain": (40.4637, -3.7492), "Sri Lanka": (7.8731, 80.7718),
+    "Sudan": (12.8628, 30.2176), "Sweden": (60.1282, 18.6435),
+    "Switzerland": (46.8182, 8.2275), "Syria": (34.8021, 38.9968),
+    "Taiwan": (23.6978, 120.9605), "Taiwan (China)": (23.6978, 120.9605),
+    "Tajikistan": (38.8610, 71.2761), "Tanzania": (-6.3690, 34.8888),
+    "Thailand": (15.8700, 100.9925), "Tunisia": (33.8869, 9.5375),
+    "Turkey": (38.9637, 35.2433), "Turkmenistan": (38.9697, 59.5563),
+    "Uganda": (1.3733, 32.2903), "Ukraine": (48.3794, 31.1656),
+    "United Arab Emirates": (23.4241, 53.8478),
+    "United Kingdom": (55.3781, -3.4360),
+    "United States": (37.0902, -95.7129), "Uruguay": (-32.5228, -55.7658),
+    "Uzbekistan": (41.3775, 64.5853), "Venezuela": (6.4238, -66.5897),
+    "Vietnam": (14.0583, 108.2772), "Yemen": (15.5527, 48.5164),
+    "Zambia": (-13.1339, 27.8493), "Zimbabwe": (-19.0154, 29.1549),
 }
 
 
-# ── Step 1: Load and clean data ───────────────────────────────────────────
+# ── Step 1: Load and clean CSV data ──────────────────────────────────────
 def parse_category(val):
     """Extract first category from JSON list string like '[\"Partner Meetings\"]'"""
     try:
@@ -109,15 +104,29 @@ def load_data(path_2025, path_2026):
     df25 = pd.read_csv(path_2025)
     df26 = pd.read_csv(path_2026)
 
-    df25 = df25.rename(columns={
-        "Purpose":              "Event Name",
-        "START DATE":           "Start Date",
-        "END DATE":             "End Date",
-        "COUNTRY ":             "Country",
-        "CITY":                 "City",
-        "In Country or Overseas": "Local/Overseas",
-    })
-    df26 = df26.rename(columns={"Australia or Overseas": "Local/Overseas"})
+    # Standardise 2025 column names
+    rename_25 = {}
+    for col in df25.columns:
+        stripped = col.strip()
+        if stripped.upper() in ("PURPOSE", "EVENT NAME"):
+            rename_25[col] = "Event Name"
+        elif "START" in stripped.upper():
+            rename_25[col] = "Start Date"
+        elif "END" in stripped.upper():
+            rename_25[col] = "End Date"
+        elif stripped.upper() == "COUNTRY" or stripped.upper() == "COUNTRY ":
+            rename_25[col] = "Country"
+        elif "IN COUNTRY" in stripped.upper() or "OVERSEAS" in stripped.upper():
+            rename_25[col] = "Local/Overseas"
+    df25 = df25.rename(columns=rename_25)
+
+    # Standardise 2026 column names
+    rename_26 = {}
+    for col in df26.columns:
+        stripped = col.strip()
+        if "AUSTRALIA" in stripped.upper() or "OVERSEAS" in stripped.upper():
+            rename_26[col] = "Local/Overseas"
+    df26 = df26.rename(columns=rename_26)
 
     df25["Year"] = 2025
     df26["Year"] = 2026
@@ -138,12 +147,14 @@ def load_data(path_2025, path_2026):
     return df
 
 
-# ── Step 2: Build per-country event data ─────────────────────────────────
+# ── Step 2: Build per-country event structure ─────────────────────────────
 def build_country_data(df):
     country_data = {}
+    skipped = []
     for country, group in df.groupby("Country"):
-        if country not in COUNTRY_COORDS:
-            print(f"  ⚠  No coordinates for '{country}' — skipping")
+        coords = WORLD_COORDS.get(country)
+        if not coords:
+            skipped.append(country)
             continue
         events = []
         for _, row in group.iterrows():
@@ -154,16 +165,49 @@ def build_country_data(df):
                 "category": row["Category"],
                 "year":     int(row["Year"]),
             })
-        country_data[country] = {
-            "coords": list(COUNTRY_COORDS[country]),
-            "events": events,
-        }
+        country_data[country] = {"coords": list(coords), "events": events}
+    if skipped:
+        print(f"  ⚠  No coordinates found for: {', '.join(skipped)}")
+        print(f"     Add them to WORLD_COORDS in generate_map.py")
     return country_data
 
 
-# ── Step 3: Encode logos to base64 ───────────────────────────────────────
+# ── Step 3: Dynamic logo matching ────────────────────────────────────────
+def normalise(s):
+    """Lowercase, remove punctuation and extra spaces for fuzzy matching."""
+    return re.sub(r'[^a-z0-9 ]', '', s.lower()).strip()
+
+
+def build_logo_index(logos_dir):
+    """Scan Logos folder and build a normalised name → filepath index."""
+    index = {}
+    if not os.path.exists(logos_dir):
+        print(f"  ⚠  Logos folder not found: {logos_dir}")
+        return index
+    for filename in os.listdir(logos_dir):
+        name, ext = os.path.splitext(filename)
+        if ext.lower() in (".jpg", ".jpeg", ".png", ".svg", ".avif", ".webp"):
+            index[normalise(name)] = os.path.join(logos_dir, filename)
+    return index
+
+
+def find_logo(partner, logo_index):
+    """Try to match a partner name to a logo file."""
+    if not partner:
+        return None
+    key = normalise(partner)
+    # Exact match
+    if key in logo_index:
+        return logo_index[key]
+    # Partial match — logo filename is contained in partner name or vice versa
+    for logo_key, path in logo_index.items():
+        if logo_key in key or key in logo_key:
+            return path
+    return None
+
+
 def encode_logo(filepath):
-    """Convert any image (jpg, png, svg, avif) to a base64 data URI."""
+    """Convert any image to a base64 data URI."""
     ext = os.path.splitext(filepath)[1].lower()
     try:
         if ext == ".svg":
@@ -184,33 +228,42 @@ def encode_logo(filepath):
         return ""
 
 
-def build_logo_maps(logos_dir):
-    """Return (logo_map, consortium_map) with base64 data URIs."""
+def build_logo_map(df, logo_index):
+    """Build partner → base64 URI map for all unique partners in the data."""
     logo_map = {}
-    for partner, filename in PARTNER_LOGO_FILES.items():
-        path = os.path.join(logos_dir, filename)
-        if os.path.exists(path):
-            logo_map[partner] = encode_logo(path)
+    no_logo  = []
+    partners = df["Partner Name"].dropna().unique()
+
+    for partner in partners:
+        partner = partner.strip()
+        if not partner:
+            continue
+        # Handle consortium partners (comma-separated multiple orgs)
+        if "," in partner:
+            parts = [p.strip() for p in partner.split(",")]
+            uris  = []
+            for part in parts:
+                path = find_logo(part, logo_index)
+                uris.append(encode_logo(path) if path else "")
+            logo_map[partner] = {"type": "consortium", "uris": uris}
         else:
-            print(f"  ⚠  Logo not found: {filename}")
-            logo_map[partner] = ""
+            path = find_logo(partner, logo_index)
+            if path:
+                logo_map[partner] = {"type": "single", "uri": encode_logo(path)}
+            else:
+                no_logo.append(partner)
 
-    consortium_map = {}
-    for partner, filenames in CONSORTIUM_PARTNERS.items():
-        uris = []
-        for filename in filenames:
-            path = os.path.join(logos_dir, filename)
-            uris.append(encode_logo(path) if os.path.exists(path) else "")
-        consortium_map[partner] = uris
+    if no_logo:
+        print(f"  ⚠  No logo found for: {', '.join(no_logo)}")
+        print(f"     Add logo files to Logos/ with the partner name as filename")
 
-    return logo_map, consortium_map
+    return logo_map
 
 
 # ── Step 4: Generate HTML ─────────────────────────────────────────────────
-def generate_html(country_data, logo_map, consortium_map):
-    country_data_js  = json.dumps(country_data)
-    logo_map_js      = json.dumps(logo_map)
-    consortium_map_js = json.dumps(consortium_map)
+def generate_html(country_data, logo_map):
+    country_data_js = json.dumps(country_data)
+    logo_map_js     = json.dumps(logo_map)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -248,6 +301,8 @@ def generate_html(country_data, logo_map, consortium_map):
   .badge-category {{ background:#e8f5e9; color:#2e7d32; }}
   .badge-year-2025 {{ background:#002147; color:#FFD100; }}
   .badge-year-2026 {{ background:#C0392B; color:white; }}
+  .badge-year-2027 {{ background:#6c3483; color:white; }}
+  .badge-year-2028 {{ background:#1a5276; color:white; }}
   .collage {{ display:flex; flex-wrap:wrap; gap:4px; width:40px; }}
   .collage img {{ width:17px; height:17px; object-fit:contain; border-radius:3px; border:0.5px solid #e0e0e0; background:white; }}
   #default-message {{ display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#999; text-align:center; padding:40px 20px; }}
@@ -285,33 +340,28 @@ def generate_html(country_data, logo_map, consortium_map):
 </div>
 <script>
 const LOGO_MAP = {logo_map_js};
-const CONSORTIUM_LOGOS = {consortium_map_js};
 const COUNTRY_DATA = {country_data_js};
 
 function getLogoHTML(partner) {{
   if (!partner) return '<div class="partner-logo-placeholder">🏛️</div>';
-  if (CONSORTIUM_LOGOS[partner]) {{
-    const imgs = CONSORTIUM_LOGOS[partner].map(src => `<img src="${{src}}">`).join('');
+  const entry = LOGO_MAP[partner];
+  if (!entry) return '<div class="partner-logo-placeholder">🏛️</div>';
+  if (entry.type === 'consortium') {{
+    const imgs = entry.uris.filter(u => u).map(u => `<img src="${{u}}">`).join('');
     return `<div class="collage">${{imgs}}</div>`;
   }}
-  if (LOGO_MAP[partner]) return `<img class="partner-logo" src="${{LOGO_MAP[partner]}}">`;
-  return '<div class="partner-logo-placeholder">🏛️</div>';
-}}
-
-function deduplicateEvents(events) {{
-  return events.map(ev => {{ return {{ ...ev, isDuplicate: false }}; }});
+  return `<img class="partner-logo" src="${{entry.uri}}">`;
 }}
 
 function showSidebar(country, data) {{
   document.getElementById('sidebar').classList.remove('hidden');
   document.getElementById('default-message').style.display = 'none';
   document.getElementById('sidebar-country').textContent = country;
-  const events = deduplicateEvents(data.events);
-  document.getElementById('event-count').textContent = `${{events.length}} event${{events.length !== 1 ? 's' : ''}}`;
-  document.getElementById('event-list').innerHTML = events.map(ev => `
+  document.getElementById('event-count').textContent = `${{data.events.length}} event${{data.events.length !== 1 ? 's' : ''}}`;
+  document.getElementById('event-list').innerHTML = data.events.map(ev => `
     <div class="event-card">
       <div class="event-header">
-        ${{ev.isDuplicate ? '<div class="partner-logo-placeholder" style="opacity:0"></div>' : getLogoHTML(ev.partner)}}
+        ${{getLogoHTML(ev.partner)}}
         <div>
           <div class="event-name">${{ev.name}}</div>
           ${{ev.partner ? `<div class="partner-name">${{ev.partner}}</div>` : ''}}
@@ -364,25 +414,32 @@ def main():
     country_data = build_country_data(df)
     print(f"   Found {len(country_data)} countries")
 
-    print("\n3. Encoding logos...")
-    logo_map, consortium_map = build_logo_maps(LOGOS_DIR)
-    loaded = sum(1 for v in logo_map.values() if v)
-    print(f"   Encoded {loaded}/{len(logo_map)} logos successfully")
+    print("\n3. Scanning logos folder and matching partners...")
+    logo_index = build_logo_index(LOGOS_DIR)
+    print(f"   Found {len(logo_index)} logo files")
+    logo_map = build_logo_map(df, logo_index)
+    matched = sum(1 for v in logo_map.values())
+    print(f"   Matched {matched} partners to logos")
 
     print("\n4. Generating HTML...")
-    html = generate_html(country_data, logo_map, consortium_map)
-
+    html = generate_html(country_data, logo_map)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(html)
-
     size_kb = os.path.getsize(OUTPUT_HTML) // 1024
     print(f"   Saved to {OUTPUT_HTML} ({size_kb} KB)")
 
     print("\n✓ Done! Open busadi_map.html in your browser to view.")
+    print("\nTo add new events:")
+    print("  1. Update the CSV files")
+    print("  2. Run this script again")
     print("\nTo add a new partner logo:")
-    print("  1. Add the logo file to your Logos folder")
-    print("  2. Add an entry to PARTNER_LOGO_FILES in this script")
-    print("  3. Run this script again")
+    print("  1. Save the logo to the Logos/ folder")
+    print("     Name it exactly as the partner appears in the CSV")
+    print("     e.g. 'New University.png'")
+    print("  2. Run this script again")
+    print("\nTo add a new country not in the list:")
+    print("  1. Add it to WORLD_COORDS in this script")
+    print("  2. Run this script again")
 
 
 if __name__ == "__main__":
